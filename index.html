@@ -541,7 +541,7 @@ function ReviewScreen({question,index,answer,onBack}){
 }
 
 function App(){
-  const[view,setView]=useState("home");
+  const[view,setView]=useState("loading");
   const[simulacro,setSimulacro]=useState(null);
   const[questions,setQuestions]=useState([]);
   const[examMode,setExamMode]=useState("real");
@@ -551,6 +551,12 @@ function App(){
   const[history,setHistory]=useState(()=>{
     try{return JSON.parse(localStorage.getItem("gace-history")||"[]");}catch{return[];}
   });
+
+  useEffect(()=>{
+    fetch("data/latest.json").then(r=>{if(!r.ok)throw new Error();return r.json();})
+      .then(d=>{setSimulacro(d);setView("modeSelect");})
+      .catch(()=>setView("home"));
+  },[]);
 
   const saveHistory=entry=>{
     const updated=[entry,...history].slice(0,50);
@@ -578,6 +584,12 @@ function App(){
 
   return(
     <div style={{background:C.bg,minHeight:"100vh"}}>
+      {view==="loading"&&(
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh"}}>
+          <h1 style={{fontFamily:"'DM Serif Display',serif",fontSize:36,color:C.header,marginBottom:12}}>GACE Trainer</h1>
+          <p style={{color:C.muted,fontSize:15}}>Cargando simulacro...</p>
+        </div>
+      )}
       {view==="home"&&<HomeScreen onLoad={handleLoad} history={history}/>}
       {view==="modeSelect"&&<ModeSelectScreen simulacro={simulacro} onStart={handleStart} onBack={()=>setView("home")}/>}
       {view==="exam"&&<ExamScreen questions={questions} mode={examMode} onFinish={handleFinish}/>}
