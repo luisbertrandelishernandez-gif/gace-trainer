@@ -10,7 +10,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.js"></script>
 <style>*,*::before,*::after{box-sizing:border-box;margin:0}body{font-family:'DM Sans',sans-serif;background:#f8f7f4;color:#1e293b}</style>
 </head>
 <body>
@@ -20,13 +19,6 @@ var h = React.createElement;
 var useState = React.useState;
 var useEffect = React.useEffect;
 var useRef = React.useRef;
-var RBarChart = Recharts.BarChart;
-var RBar = Recharts.Bar;
-var RXAxis = Recharts.XAxis;
-var RYAxis = Recharts.YAxis;
-var RTooltip = Recharts.Tooltip;
-var RResponsive = Recharts.ResponsiveContainer;
-var RCell = Recharts.Cell;
 
 var CL = {bg:"#f8f7f4",card:"#fff",hd:"#1e293b",ac:"#b45309",acL:"#fef3c7",ok:"#059669",okL:"#d1fae5",er:"#dc2626",erL:"#fee2e2",mu:"#64748b",bd:"#e2e0db",tx:"#1e293b",txL:"#475569",mk:"#7c3aed",mkL:"#ede9fe",un:"#d1d5db"};
 var TC = ["#2563eb","#7c3aed","#db2777","#ea580c","#059669","#0891b2","#4f46e5","#b45309","#6366f1"];
@@ -163,12 +155,7 @@ function ResultsScreen(props) {
         h("span",null,h("span",{style:{fontWeight:700,color:CL.mu}},"\u2014 "+res.b)," en blanco"))),
     h("div",{style:{background:CL.card,borderRadius:16,padding:"24px 16px",border:"1px solid "+CL.bd,marginBottom:24}},
       h("h3",{style:{fontFamily:"'DM Serif Display',serif",fontSize:18,margin:"0 0 16px 16px"}},"Rendimiento por tema"),
-      h(RResponsive,{width:"100%",height:cd.length*44+20},
-        h(RBarChart,{layout:"vertical",data:cd,margin:{left:8,right:24}},
-          h(RXAxis,{type:"number",domain:[0,100],tickFormatter:function(v){return v+"%"},fontSize:12}),
-          h(RYAxis,{type:"category",dataKey:"name",width:110,fontSize:12,tick:{fill:CL.txL}}),
-          h(RTooltip,{formatter:function(v){return v.toFixed(1)+"%"}}),
-          h(RBar,{dataKey:"pct",radius:[0,6,6,0],barSize:22},cd.map(function(d,i){return h(RCell,{key:i,fill:d.fill})}))))),
+      h("div",{style:{padding:"0 16px"}},cd.map(function(d,i){return h("div",{key:i,style:{display:"flex",alignItems:"center",gap:10,marginBottom:10}},h("div",{style:{width:110,fontSize:12,color:CL.txL,textAlign:"right",flexShrink:0}},d.name),h("div",{style:{flex:1,background:CL.bg,borderRadius:6,height:22,overflow:"hidden"}},h("div",{style:{width:Math.max(d.pct,2)+"%",height:"100%",background:d.fill,borderRadius:6,transition:"width 0.5s"}})),h("div",{style:{width:45,fontSize:12,fontWeight:700,color:d.fill,textAlign:"right"}},d.pct.toFixed(1)+"%"))}))),
     h("div",{style:{background:CL.card,borderRadius:16,padding:24,border:"1px solid "+CL.bd}},
       h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}},
         h("h3",{style:{fontFamily:"'DM Serif Display',serif",fontSize:18,margin:0}},"Preguntas ("+filtered.length+")"),
