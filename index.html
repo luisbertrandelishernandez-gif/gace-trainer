@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GACE Trainer — Entrenamiento Oposiciones</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0}
+body{font-family:'DM Sans',sans-serif;background:#f8f7f4;color:#1e293b}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spin{animation:spin 1s linear infinite}
+.icon{display:inline-flex;align-items:center;justify-content:center}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback}=React;
+const {BarChart,Bar,XAxis,YAxis,Tooltip,ResponsiveContainer,Cell}=Recharts;
+
+const C={
+  bg:"#f8f7f4",card:"#ffffff",header:"#1e293b",accent:"#b45309",
+  accentLight:"#fef3c7",success:"#059669",successLight:"#d1fae5",
+  error:"#dc2626",errorLight:"#fee2e2",muted:"#64748b",
+  border:"#e2e0db",text:"#1e293b",textLight:"#475569",
+  marked:"#7c3aed",markedLight:"#ede9fe",unanswered:"#d1d5db",
+};
+const TC=["#2563eb","#7c3aed","#db2777","#ea580c","#059669","#0891b2","#4f46e5","#b45309","#6366f1"];
+
+const I={
+  clock:"⏱",check:"✓",x:"✗",minus:"—",flag:"⚑",left:"◀",right:"▶",
+  upload:"📂",play:"▶",book:"📖",bar:"📊",eye:"👁",back:"←",
+  warn:"⚠",list:"☰",file:"📄",loader:"⟳",
+};
+
+const formatTime=(s)=>{
+  const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;
+  return h>0?`${h}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`:`${m}:${String(sec).padStart(2,"0")}`;
+};
+
+function flattenQuestions(sim){
+  const qs=[];
+  if(sim?.parte_test?.bloques){
+    sim.parte_test.bloques.forEach(b=>{
+      (b.preguntas||[]).forEach(p=>{
+        qs.push({...p,section:"test",topic:b.tema,topicShort:p.tema_abrev||b.tema?.substring(0,2)});
+      });
+    });
+  }
+  if(sim?.parte_supuestos?.supuestos){
+    sim.parte_supuestos.supuestos.forEach((s,si)=>{
+      (s.preguntas||[]).forEach((p,pi)=>{
+        qs.push({...p,section:"supuesto",topic:s.tema,supuestoNum:si+1,
+          enunciado:s.enunciado,num:p.num||pi+1,topicShort:`S${si+1}`});
+      });
+    });
+  }
+  return qs;
+}
+
+function calcResults(questions,answers,pen=0.33){
+  let correct=0,wrong=0,blank=0;
+  const byTopic={};
+  questions.forEach((q,i)=>{
+    const key=`${q.section}-${q.topic}`;
+    if(!byTopic[key])byTopic[key]={topic:q.topic,section:q.section,correct:0,wrong:0,blank:0,total:0};
+    byTopic[key].total++;
+    const ans=answers[i];
+    if(!ans){blank++;byTopic[key].blank++;}
+    else if(ans.toLowerCase()===(q.respuesta_correcta||"").toLowerCase()){correct++;byTopic[key].correct++;}
+    else{wrong++;byTopic[key].wrong++;}
+  });
+  const raw=correct-wrong*pen;
+  const max=questions.length;
+  const pct=max>0?Math.max(0,(raw/max)*100):0;
+  const topics=Object.values(byTopic).map(t=>({
+    ...t,raw:t.correct-t.wrong*pen,
+    pct:t.total>0?Math.max(0,((t.correct-t.wrong*pen)/t.total)*100):0,
+  }));
+  return{correct,wrong,blank,raw:Math.max(0,raw),max,pct,topics,pen};
+}
+
+function HomeScreen({onLoad,history}){
+  const[jsonText,setJsonText]=useState("");
+  const[error,setError]=useState("");
+  const fileRef=useRef();
+
+  const handlePaste=()=>{
+    try{
+      const d=JSON.parse(jsonText);
+      if(!d.parte_test&&!d.parte_supuestos)throw new Error("JSON no tiene estructura de simulacro");
+      onLoad(d);
+    }catch(e){setError("JSON inválido: "+e.message);}
+  };
+
+  const handleFile=e=>{
+    const f=e.target.files?.[0];if(!f)return;
+    const r=new FileReader();
+    r.onload=ev=>{
+      try{onLoad(JSON.parse(ev.target.result));}
+      catch(err){setError("Error leyendo archivo: "+err.message);}
+    };
+    r.readAsText(f);
+  };
+
+  return(
+    <div style={{maxWidth:700,margin:"0 auto",padding:"40px 20px"}}>
+      <div style={{textAlign:"center",marginBottom:48}}>
+        <h1 style={{fontFamily:"'DM Serif Display',serif",fontSize:42,color:C.header,margin:0,letterSpacing:-1}}>GACE Trainer</h1>
+        <p style={{color:C.muted,fontSize:15,marginTop:8}}>Entrenamiento para oposiciones · Cuerpo de Gestión A2</p>
+      </div>
+      <div style={{background:C.card,borderRadius:16,padding:32,border:`1px solid ${C.border}`,marginBottom:24}}>
+        <h2 style={{fontFamily:"'DM Serif Display',serif",fontSize:22,color:C.header,margin:"0 0 20px 0"}}>Cargar simulacro</h2>
+        <div style={{display:"flex",gap:12,marginBottom:20}}>
+          <button onClick={()=>fileRef.current?.click()}
+            style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8,
+              padding:"14px 20px",background:C.header,color:"#fff",border:"none",borderRadius:10,
+              fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:15,cursor:"pointer"}}>
+            {I.upload} Abrir archivo JSON
+          </button>
+          <input ref={fileRef} type="file" accept=".json" onChange={handleFile} style={{display:"none"}}/>
+        </div>
+        <div style={{marginBottom:16}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,color:C.muted,fontSize:13,marginBottom:8}}>
+            <div style={{flex:1,height:1,background:C.border}}/><span>o pega el JSON aquí</span><div style={{flex:1,height:1,background:C.border}}/>
+          </div>
+          <textarea value={jsonText} onChange={e=>{setJsonText(e.target.value);setError("");}}
+            placeholder='{"simulacro_id":"GACE_20260406",...}'
+            style={{width:"100%",minHeight:100,padding:14,border:`1px solid ${C.border}`,
+              borderRadius:10,fontFamily:"monospace",fontSize:13,resize:"vertical",background:"#fafaf8",boxSizing:"border-box"}}/>
+        </div>
+        {jsonText.trim()&&(
+          <button onClick={handlePaste} style={{width:"100%",padding:"12px 20px",background:C.accent,color:"#fff",
+            border:"none",borderRadius:10,fontWeight:600,fontSize:15,cursor:"pointer"}}>Cargar simulacro</button>
+        )}
+        {error&&(<div style={{marginTop:12,padding:12,background:C.errorLight,borderRadius:8,color:C.error,fontSize:13}}>{I.warn} {error}</div>)}
+      </div>
+      {history.length>0&&(
+        <div style={{background:C.card,borderRadius:16,padding:32,border:`1px solid ${C.border}`}}>
+          <h2 style={{fontFamily:"'DM Serif Display',serif",fontSize:22,color:C.header,margin:"0 0 16px 0"}}>Historial</h2>
+          {history.map((h,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+              padding:"14px 0",borderBottom:i<history.length-1?`1px solid ${C.border}`:"none"}}>
+              <div>
+                <div style={{fontWeight:600,color:C.header,fontSize:15}}>{h.id}</div>
+                <div style={{color:C.muted,fontSize:13}}>{h.mode} · {h.date}</div>
+              </div>
+              <div style={{fontFamily:"'DM Serif Display',serif",fontSize:24,color:h.pct>=50?C.success:C.error}}>{h.pct.toFixed(1)}%</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ModeSelectScreen({simulacro,onStart,onBack}){
+  const qs=flattenQuestions(simulacro);
+  const testCount=qs.filter(q=>q.section==="test").length;
+  const supCount=qs.filter(q=>q.section==="supuesto").length;
+  const topics=[...new Set(qs.filter(q=>q.section==="test").map(q=>q.topic))];
+  const[mode,setMode]=useState(null);
+  const[topic,setTopic]=useState(null);
+  const modes=[
+    {id:"real",icon:I.clock,title:"Examen Real",desc:`${testCount} test + ${supCount} supuestos · Cronometrado`},
+    {id:"practice",icon:I.book,title:"Práctica libre",desc:"Sin cronómetro · Ver respuestas al corregir"},
+    {id:"topic",icon:I.list,title:"Bloque temático",desc:"Practica un solo tema"},
+  ];
+  return(
+    <div style={{maxWidth:700,margin:"0 auto",padding:"40px 20px"}}>
+      <button onClick={onBack} style={{display:"flex",alignItems:"center",gap:6,background:"none",border:"none",color:C.muted,fontSize:14,cursor:"pointer",marginBottom:24,padding:0}}>{I.back} Volver</button>
+      <div style={{textAlign:"center",marginBottom:36}}>
+        <h1 style={{fontFamily:"'DM Serif Display',serif",fontSize:32,color:C.header,margin:0}}>{simulacro.simulacro_id||"Simulacro"}</h1>
+        <p style={{color:C.muted,fontSize:14,marginTop:6}}>{simulacro.fecha} · {testCount} test + {supCount} supuestos</p>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {modes.map(m=>(
+          <button key={m.id} onClick={()=>{setMode(m.id);if(m.id!=="topic")setTopic(null);}}
+            style={{display:"flex",alignItems:"center",gap:16,padding:"20px 24px",
+              background:mode===m.id?C.accentLight:C.card,border:`2px solid ${mode===m.id?C.accent:C.border}`,
+              borderRadius:14,cursor:"pointer",textAlign:"left"}}>
+            <div style={{fontSize:24,color:mode===m.id?C.accent:C.muted}}>{m.icon}</div>
+            <div><div style={{fontWeight:700,fontSize:16,color:C.header}}>{m.title}</div>
+              <div style={{fontSize:13,color:C.muted,marginTop:2}}>{m.desc}</div></div>
+          </button>
+        ))}
+      </div>
+      {mode==="topic"&&(
+        <div style={{marginTop:20}}>
+          <p style={{fontWeight:600,color:C.header,marginBottom:10,fontSize:14}}>Selecciona tema:</p>
+          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+            {topics.map((t,i)=>(
+              <button key={t} onClick={()=>setTopic(t)}
+                style={{padding:"10px 16px",borderRadius:10,fontSize:13,fontWeight:600,cursor:"pointer",
+                  border:"2px solid",borderColor:topic===t?TC[i]:C.border,
+                  background:topic===t?TC[i]+"18":C.card,color:topic===t?TC[i]:C.textLight}}>{t}</button>
+            ))}
+          </div>
+        </div>
+      )}
+      {mode&&(mode!=="topic"||topic)&&(
+        <button onClick={()=>onStart(mode,topic)}
+          style={{width:"100%",marginTop:28,padding:"16px 24px",background:C.accent,color:"#fff",
+            border:"none",borderRadius:12,fontWeight:700,fontSize:17,cursor:"pointer"}}>{I.play} Empezar</button>
+      )}
+    </div>
+  );
+}
+
+function ExamScreen({questions,mode,onFinish}){
+  const[cur,setCur]=useState(0);
+  const[answers,setAnswers]=useState({});
+  const[marked,setMarked]=useState(new Set());
+  const[showMap,setShowMap]=useState(false);
+  const[confirmEnd,setConfirmEnd]=useState(false);
+  const totalSec=mode==="real"?(90+120)*60:null;
+  const[timeLeft,setTimeLeft]=useState(totalSec);
+  const timerRef=useRef();
+
+  useEffect(()=>{
+    if(mode!=="real"||!timeLeft)return;
+    timerRef.current=setInterval(()=>{
+      setTimeLeft(t=>{if(t<=1){clearInterval(timerRef.current);return 0;}return t-1;});
+    },1000);
+    return()=>clearInterval(timerRef.current);
+  },[mode]);
+
+  useEffect(()=>{if(timeLeft===0&&mode==="real")onFinish(answers);},[timeLeft]);
+
+  const q=questions[cur];
+  const answered=Object.keys(answers).length;
+  const isMarked=marked.has(cur);
+  const isSupuesto=q?.section==="supuesto";
+  const select=opt=>setAnswers(a=>({...a,[cur]:opt}));
+  const toggleMark=()=>setMarked(m=>{const n=new Set(m);n.has(cur)?n.delete(cur):n.add(cur);return n;});
+
+  const isPractice=mode==="practice"||mode==="topic";
+  const hasAnswered=answers[cur]!=null;
+  const showFeedback=isPractice&&hasAnswered;
+  const correctOpt=(q.respuesta_correcta||"").toLowerCase();
+  const userAns=(answers[cur]||"").toLowerCase();
+  const isCorrect=userAns===correctOpt;
+
+  const timerColor=timeLeft&&timeLeft<600?C.error:timeLeft&&timeLeft<1800?C.accent:"rgba(255,255,255,0.12)";
+
+  return(
+    <div style={{minHeight:"100vh",background:C.bg}}>
+      <div style={{position:"sticky",top:0,zIndex:10,background:C.header,padding:"10px 16px",
+        display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <span style={{color:"#fff",fontWeight:700,fontSize:15}}>{cur+1}/{questions.length}</span>
+          <span style={{color:"rgba(255,255,255,0.5)",fontSize:13}}>{answered} resp.</span>
+        </div>
+        {mode==="real"&&timeLeft!=null&&(
+          <div style={{background:timerColor,padding:"5px 14px",borderRadius:8,color:"#fff",
+            fontWeight:700,fontSize:16,fontVariantNumeric:"tabular-nums"}}>{I.clock} {formatTime(timeLeft)}</div>
+        )}
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>setShowMap(!showMap)}
+            style={{background:"rgba(255,255,255,0.12)",border:"none",color:"#fff",padding:"6px 12px",
+              borderRadius:8,fontSize:13,cursor:"pointer",fontWeight:600}}>Mapa</button>
+          <button onClick={()=>setConfirmEnd(true)}
+            style={{background:C.accent,border:"none",color:"#fff",padding:"6px 14px",
+              borderRadius:8,fontSize:13,cursor:"pointer",fontWeight:700}}>Finalizar</button>
+        </div>
+      </div>
+
+      {showMap&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:20,
+          display:"flex",justifyContent:"center",alignItems:"center"}} onClick={()=>setShowMap(false)}>
+          <div style={{background:C.card,borderRadius:16,padding:24,maxWidth:420,width:"90%",maxHeight:"80vh",overflow:"auto"}}
+            onClick={e=>e.stopPropagation()}>
+            <h3 style={{margin:"0 0 16px 0",fontFamily:"'DM Serif Display',serif",fontSize:20}}>Mapa de preguntas</h3>
+            <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+              {questions.map((_,i)=>{
+                const a=answers[i],m=marked.has(i);
+                let bg=C.unanswered;if(a)bg=C.success;if(m)bg=C.marked;
+                return(<button key={i} onClick={()=>{setCur(i);setShowMap(false);}}
+                  style={{width:36,height:36,borderRadius:8,border:i===cur?`2px solid ${C.header}`:"1px solid transparent",
+                    background:bg,color:a||m?"#fff":C.textLight,fontSize:12,fontWeight:700,cursor:"pointer"}}>{i+1}</button>);
+              })}
+            </div>
+            <div style={{display:"flex",gap:16,marginTop:16,fontSize:12,color:C.muted}}>
+              <span><span style={{display:"inline-block",width:12,height:12,borderRadius:3,background:C.success,verticalAlign:"middle",marginRight:4}}/> Respondida</span>
+              <span><span style={{display:"inline-block",width:12,height:12,borderRadius:3,background:C.marked,verticalAlign:"middle",marginRight:4}}/> Marcada</span>
+              <span><span style={{display:"inline-block",width:12,height:12,borderRadius:3,background:C.unanswered,verticalAlign:"middle",marginRight:4}}/> Pendiente</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmEnd&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:20,
+          display:"flex",justifyContent:"center",alignItems:"center"}}>
+          <div style={{background:C.card,borderRadius:16,padding:32,maxWidth:400,width:"90%",textAlign:"center"}}>
+            <div style={{fontSize:40,marginBottom:12}}>{I.warn}</div>
+            <h3 style={{fontFamily:"'DM Serif Display',serif",margin:"0 0 8px 0",fontSize:22}}>¿Finalizar examen?</h3>
+            <p style={{color:C.muted,fontSize:14,marginBottom:8}}>Has respondido <strong>{answered}</strong> de <strong>{questions.length}</strong> preguntas.</p>
+            {questions.length-answered>0&&(<p style={{color:C.error,fontSize:13,marginBottom:20}}>{questions.length-answered} sin responder</p>)}
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>setConfirmEnd(false)} style={{flex:1,padding:"12px 16px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,fontSize:14,fontWeight:600,cursor:"pointer"}}>Seguir</button>
+              <button onClick={()=>{clearInterval(timerRef.current);onFinish(answers);}} style={{flex:1,padding:"12px 16px",background:C.accent,color:"#fff",border:"none",borderRadius:10,fontSize:14,fontWeight:700,cursor:"pointer"}}>Finalizar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{maxWidth:740,margin:"0 auto",padding:"24px 16px 120px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+          <span style={{background:isSupuesto?C.markedLight:C.accentLight,color:isSupuesto?C.marked:C.accent,
+            padding:"4px 12px",borderRadius:20,fontSize:12,fontWeight:700}}>{isSupuesto?`SUPUESTO ${q.supuestoNum}`:"TEST"}</span>
+          <span style={{color:C.muted,fontSize:13,fontWeight:600}}>{q.topic}</span>
+          <button onClick={toggleMark} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:4,
+            background:isMarked?C.markedLight:"transparent",border:`1px solid ${isMarked?C.marked:C.border}`,
+            color:isMarked?C.marked:C.muted,padding:"5px 10px",borderRadius:8,fontSize:12,cursor:"pointer",fontWeight:600}}>
+            {I.flag} {isMarked?"Marcada":"Marcar"}</button>
+        </div>
+
+        {isSupuesto&&q.enunciado&&(
+          <div style={{background:"#f0efeb",padding:20,borderRadius:12,marginBottom:20,
+            fontSize:14,lineHeight:1.7,borderLeft:`4px solid ${C.marked}`}}>
+            <strong style={{display:"block",marginBottom:8,fontSize:13,color:C.marked}}>ENUNCIADO DEL CASO</strong>
+            {q.enunciado}
+          </div>
+        )}
+
+        <h2 style={{fontFamily:"'DM Serif Display',serif",fontSize:20,color:C.header,lineHeight:1.5,margin:"0 0 24px 0"}}>
+          <span style={{color:C.muted,fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:600}}>Pregunta {cur+1}. </span>
+          {q.pregunta}
+        </h2>
+
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {["a","b","c","d"].map(opt=>{
+            const selected=userAns===opt;
+            let bg=selected?C.accentLight:C.card;
+            let border=selected?C.accent:C.border;
+            let labelBg=selected?C.accent:C.bg;
+            let labelColor=selected?"#fff":C.muted;
+            if(showFeedback){
+              const isRight=correctOpt===opt;
+              if(isRight){bg=C.successLight;border=C.success;labelBg=C.success;labelColor="#fff";}
+              else if(selected&&!isCorrect){bg=C.errorLight;border=C.error;labelBg=C.error;labelColor="#fff";}
+              else{bg=C.card;border=C.border;labelBg=C.bg;labelColor=C.muted;}
+            }
+            return(
+              <button key={opt} onClick={()=>{if(!showFeedback)select(opt);}}
+                style={{display:"flex",alignItems:"flex-start",gap:14,padding:"16px 18px",
+                  background:bg,border:`2px solid ${border}`,borderRadius:12,
+                  cursor:showFeedback?"default":"pointer",textAlign:"left"}}>
+                <div style={{minWidth:32,height:32,borderRadius:8,display:"flex",alignItems:"center",
+                  justifyContent:"center",fontWeight:800,fontSize:14,background:labelBg,color:labelColor}}>{opt.toUpperCase()}</div>
+                <div style={{fontSize:15,lineHeight:1.6,color:C.text,paddingTop:4}}>{q[opt]}</div>
+              </button>
+            );
+          })}
+        </div>
+
+        {showFeedback&&(
+          <div style={{marginTop:20,background:C.card,borderRadius:14,padding:20,border:`1px solid ${C.border}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+              {isCorrect
+                ?<span style={{fontWeight:700,color:C.success,fontSize:14}}>{I.check} ¡Correcta!</span>
+                :<span style={{fontWeight:700,color:C.error,fontSize:14}}>{I.x} Incorrecta — la correcta es {correctOpt.toUpperCase()}</span>
+              }
+            </div>
+            {q.explicacion&&(<p style={{fontSize:14,lineHeight:1.7,color:C.text,margin:"0 0 12px 0"}}>{q.explicacion}</p>)}
+            {q.referencia_legal&&(
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:"#f0efeb",borderRadius:8}}>
+                <span style={{fontSize:13,fontWeight:700,color:C.accent}}>{I.file} {q.referencia_legal}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.card,
+        borderTop:`1px solid ${C.border}`,padding:"12px 16px",
+        display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <button onClick={()=>setCur(Math.max(0,cur-1))} disabled={cur===0}
+          style={{display:"flex",alignItems:"center",gap:6,padding:"10px 18px",
+            background:cur===0?C.bg:C.header,color:cur===0?C.muted:"#fff",
+            border:"none",borderRadius:10,fontSize:14,fontWeight:600,cursor:cur===0?"default":"pointer"}}>
+          {I.left} Anterior</button>
+        <span style={{fontSize:13,color:C.muted,fontWeight:600}}>{cur+1} / {questions.length}</span>
+        <button onClick={()=>setCur(Math.min(questions.length-1,cur+1))} disabled={cur===questions.length-1}
+          style={{display:"flex",alignItems:"center",gap:6,padding:"10px 18px",
+            background:cur===questions.length-1?C.bg:C.header,color:cur===questions.length-1?C.muted:"#fff",
+            border:"none",borderRadius:10,fontSize:14,fontWeight:600,cursor:cur===questions.length-1?"default":"pointer"}}>
+          Siguiente {I.right}</button>
+      </div>
+    </div>
+  );
+}
+
+function ResultsScreen({questions,answers,results,onReview,onHome}){
+  const chartData=results.topics.map((t,i)=>({
+    name:t.topic.length>14?t.topic.substring(0,12)+"…":t.topic,
+    fullName:t.topic,pct:Math.round(t.pct*10)/10,
+    correct:t.correct,wrong:t.wrong,blank:t.blank,
+    fill:TC[i%TC.length],
+  }));
+  const[filter,setFilter]=useState("all");
+  const filtered=questions.map((q,i)=>({q,i})).filter(({q,i})=>{
+    const a=answers[i];
+    const correct=a&&a.toLowerCase()===(q.respuesta_correcta||"").toLowerCase();
+    if(filter==="wrong")return a&&!correct;
+    if(filter==="blank")return!a;
+    return true;
+  });
+
+  return(
+    <div style={{minHeight:"100vh",background:C.bg}}>
+      <div style={{maxWidth:740,margin:"0 auto",padding:"32px 16px"}}>
+        <button onClick={onHome} style={{display:"flex",alignItems:"center",gap:6,background:"none",border:"none",color:C.muted,fontSize:14,cursor:"pointer",marginBottom:24,padding:0}}>{I.back} Inicio</button>
+
+        <div style={{background:results.pct>=50?"#ecfdf5":"#fef2f2",borderRadius:20,padding:36,
+          textAlign:"center",marginBottom:24,border:`2px solid ${results.pct>=50?"#a7f3d0":"#fecaca"}`}}>
+          <div style={{fontFamily:"'DM Serif Display',serif",fontSize:56,color:results.pct>=50?C.success:C.error,lineHeight:1}}>{results.pct.toFixed(1)}%</div>
+          <div style={{color:C.muted,fontSize:14,marginTop:8}}>Puntuación: {results.raw.toFixed(2)} / {results.max} (penalización −{results.pen})</div>
+          <div style={{display:"flex",justifyContent:"center",gap:24,marginTop:20,flexWrap:"wrap"}}>
+            <div><span style={{fontWeight:700,color:C.success}}>{I.check} {results.correct}</span> <span style={{color:C.muted,fontSize:13}}>correctas</span></div>
+            <div><span style={{fontWeight:700,color:C.error}}>{I.x} {results.wrong}</span> <span style={{color:C.muted,fontSize:13}}>errores</span></div>
+            <div><span style={{fontWeight:700,color:C.muted}}>{I.minus} {results.blank}</span> <span style={{color:C.muted,fontSize:13}}>en blanco</span></div>
+          </div>
+        </div>
+
+        <div style={{background:C.card,borderRadius:16,padding:"24px 16px",border:`1px solid ${C.border}`,marginBottom:24}}>
+          <h3 style={{fontFamily:"'DM Serif Display',serif",fontSize:18,margin:"0 0 16px 16px"}}>Rendimiento por tema</h3>
+          <ResponsiveContainer width="100%" height={chartData.length*44+20}>
+            <BarChart layout="vertical" data={chartData} margin={{left:8,right:24,top:0,bottom:0}}>
+              <XAxis type="number" domain={[0,100]} tickFormatter={v=>v+"%"} fontSize={12}/>
+              <YAxis type="category" dataKey="name" width={110} fontSize={12} tick={{fill:C.textLight}}/>
+              <Tooltip formatter={v=>v.toFixed(1)+"%"} labelFormatter={(l,p)=>p?.[0]?.payload?.fullName||l}/>
+              <Bar dataKey="pct" radius={[0,6,6,0]} barSize={22}>
+                {chartData.map((d,i)=><Cell key={i} fill={d.fill}/>)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div style={{background:C.card,borderRadius:16,padding:24,border:`1px solid ${C.border}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
+            <h3 style={{fontFamily:"'DM Serif Display',serif",fontSize:18,margin:0}}>Preguntas ({filtered.length})</h3>
+            <div style={{display:"flex",gap:6}}>
+              {[["all","Todas"],["wrong","Errores"],["blank","En blanco"]].map(([f,l])=>(
+                <button key={f} onClick={()=>setFilter(f)}
+                  style={{padding:"5px 12px",borderRadius:8,fontSize:12,fontWeight:600,
+                    background:filter===f?C.header:C.bg,color:filter===f?"#fff":C.muted,
+                    border:"none",cursor:"pointer"}}>{l}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{maxHeight:400,overflow:"auto"}}>
+            {filtered.map(({q,i})=>{
+              const a=answers[i];
+              const correct=a&&a.toLowerCase()===(q.respuesta_correcta||"").toLowerCase();
+              const icon=!a?I.minus:correct?I.check:I.x;
+              const col=!a?C.muted:correct?C.success:C.error;
+              return(
+                <button key={i} onClick={()=>onReview(i)}
+                  style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"10px 12px",
+                    background:"transparent",border:"none",borderBottom:`1px solid ${C.border}`,
+                    cursor:"pointer",textAlign:"left"}}>
+                  <span style={{color:col,fontWeight:700}}>{icon}</span>
+                  <span style={{fontSize:13,color:C.text,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    <strong>{i+1}.</strong> {q.pregunta}</span>
+                  <span style={{color:C.muted}}>{I.eye}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReviewScreen({question,index,answer,onBack}){
+  const q=question,a=answer;
+  const correctOpt=(q.respuesta_correcta||"").toLowerCase();
+  const isCorrect=a&&a.toLowerCase()===correctOpt;
+
+  return(
+    <div style={{minHeight:"100vh",background:C.bg}}>
+      <div style={{maxWidth:700,margin:"0 auto",padding:"32px 16px"}}>
+        <button onClick={onBack} style={{display:"flex",alignItems:"center",gap:6,background:"none",border:"none",color:C.muted,fontSize:14,cursor:"pointer",marginBottom:24,padding:0}}>{I.back} Volver a resultados</button>
+
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}>
+          <span style={{background:q.section==="supuesto"?C.markedLight:C.accentLight,
+            color:q.section==="supuesto"?C.marked:C.accent,padding:"4px 12px",borderRadius:20,fontSize:12,fontWeight:700}}>
+            {q.section==="supuesto"?`SUPUESTO ${q.supuestoNum}`:"TEST"}</span>
+          <span style={{color:C.muted,fontSize:13,fontWeight:600}}>{q.topic}</span>
+          <span style={{marginLeft:"auto",color:!a?C.muted:isCorrect?C.success:C.error,fontWeight:700,fontSize:13}}>
+            {!a?`${I.minus} En blanco`:isCorrect?`${I.check} Correcta`:`${I.x} Incorrecta`}</span>
+        </div>
+
+        {q.section==="supuesto"&&q.enunciado&&(
+          <div style={{background:"#f0efeb",padding:20,borderRadius:12,marginBottom:20,fontSize:14,lineHeight:1.7,borderLeft:`4px solid ${C.marked}`}}>
+            <strong style={{display:"block",marginBottom:8,fontSize:13,color:C.marked}}>ENUNCIADO</strong>{q.enunciado}
+          </div>
+        )}
+
+        <div style={{background:C.card,borderRadius:16,padding:28,border:`1px solid ${C.border}`,marginBottom:20}}>
+          <h2 style={{fontFamily:"'DM Serif Display',serif",fontSize:20,lineHeight:1.5,margin:"0 0 24px 0"}}>
+            Pregunta {index+1}. {q.pregunta}</h2>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {["a","b","c","d"].map(opt=>{
+              const isThis=a?.toLowerCase()===opt,isRight=correctOpt===opt;
+              let bg=C.bg,border=C.border,labelBg=C.bg,labelColor=C.muted;
+              if(isRight){bg=C.successLight;border=C.success;labelBg=C.success;labelColor="#fff";}
+              else if(isThis&&!isCorrect){bg=C.errorLight;border=C.error;labelBg=C.error;labelColor="#fff";}
+              return(
+                <div key={opt} style={{display:"flex",alignItems:"flex-start",gap:14,padding:"14px 16px",
+                  background:bg,border:`2px solid ${border}`,borderRadius:12}}>
+                  <div style={{minWidth:30,height:30,borderRadius:8,display:"flex",alignItems:"center",
+                    justifyContent:"center",fontWeight:800,fontSize:13,background:labelBg,color:labelColor}}>{opt.toUpperCase()}</div>
+                  <div style={{fontSize:14,lineHeight:1.6,paddingTop:3,color:C.text}}>{q[opt]}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{background:C.card,borderRadius:16,padding:24,border:`1px solid ${C.border}`}}>
+          <h3 style={{fontFamily:"'DM Serif Display',serif",fontSize:16,margin:"0 0 12px 0"}}>Explicación</h3>
+          <p style={{fontSize:14,lineHeight:1.8,color:C.text,margin:"0 0 16px 0"}}>{q.explicacion||"Sin explicación disponible."}</p>
+          {q.referencia_legal&&(
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:"#f0efeb",borderRadius:10}}>
+              <span style={{fontSize:13,fontWeight:700,color:C.accent}}>{I.file} {q.referencia_legal}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App(){
+  const[view,setView]=useState("home");
+  const[simulacro,setSimulacro]=useState(null);
+  const[questions,setQuestions]=useState([]);
+  const[examMode,setExamMode]=useState("real");
+  const[answers,setAnswers]=useState({});
+  const[results,setResults]=useState(null);
+  const[reviewIdx,setReviewIdx]=useState(null);
+  const[history,setHistory]=useState(()=>{
+    try{return JSON.parse(localStorage.getItem("gace-history")||"[]");}catch{return[];}
+  });
+
+  const saveHistory=entry=>{
+    const updated=[entry,...history].slice(0,50);
+    setHistory(updated);
+    try{localStorage.setItem("gace-history",JSON.stringify(updated));}catch{}
+  };
+
+  const handleLoad=data=>{setSimulacro(data);setView("modeSelect");};
+  const handleStart=(mode,topic)=>{
+    setExamMode(mode);
+    let qs=flattenQuestions(simulacro);
+    if(mode==="topic"&&topic)qs=qs.filter(q=>q.topic===topic);
+    setQuestions(qs);setAnswers({});setResults(null);setView("exam");
+  };
+  const handleFinish=ans=>{
+    setAnswers(ans);
+    const r=calcResults(questions,ans,simulacro?.penalizacion||0.33);
+    setResults(r);
+    saveHistory({id:simulacro?.simulacro_id||"Simulacro",date:new Date().toLocaleDateString("es-ES"),
+      mode:examMode==="real"?"Examen Real":examMode==="practice"?"Práctica":"Bloque",
+      pct:r.pct,correct:r.correct,wrong:r.wrong,blank:r.blank});
+    setView("results");
+  };
+  const handleReview=idx=>{setReviewIdx(idx);setView("review");};
+
+  return(
+    <div style={{background:C.bg,minHeight:"100vh"}}>
+      {view==="home"&&<HomeScreen onLoad={handleLoad} history={history}/>}
+      {view==="modeSelect"&&<ModeSelectScreen simulacro={simulacro} onStart={handleStart} onBack={()=>setView("home")}/>}
+      {view==="exam"&&<ExamScreen questions={questions} mode={examMode} onFinish={handleFinish}/>}
+      {view==="results"&&<ResultsScreen questions={questions} answers={answers} results={results} onReview={handleReview} onHome={()=>setView("home")}/>}
+      {view==="review"&&reviewIdx!=null&&<ReviewScreen question={questions[reviewIdx]} index={reviewIdx} answer={answers[reviewIdx]} onBack={()=>setView("results")}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
